@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Карта участков и домов (общая)</title>
+
+  <!-- Яндекс.Карты (ваш ключ) -->
+  <script src="https://api-maps.yandex.ru/2.1/?apikey=065d6c4c-73e3-4f3a-be43-e2ccef65e3bc&lang=ru_RU"></script>
+
+  <!-- Firebase SDK (важные библиотеки) -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body, #map { width: 100%; height: 100%; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    #sidePanel {
+      position: fixed;
+      top: 0;
+      left: -440px;
+      width: 420px;
+      height: 100%;
+      background: #fff;
+      box-shadow: 2px 0 15px rgba(0,0,0,0.2);
+      transition: left 0.3s ease;
+      z-index: 1000;
+      overflow-y: auto;
+      padding: 25px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    #sidePanel.active { left: 0; }
+    #sidePanel h2 {
+      font-size: 20px;
+      margin-bottom: 8px;
+      border-bottom: 2px solid #1e88e5;
+      padding-bottom: 10px;
+      color: #1e88e5;
+    }
+    .field { display: flex; flex-direction: column; margin-bottom: 10px; }
+    .field label { font-weight: 600; font-size: 14px; color: #555; margin-bottom: 3px; }
+    .field input, .field textarea {
+      padding: 6px 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 14px;
+      font-family: inherit;
+      background: #fafafa;
+    }
+    .field textarea { resize: vertical; min-height: 60px; }
+    .field .value {
+      padding: 6px 10px;
+      background: #f5f5f5;
+      border-radius: 4px;
+      min-height: 30px;
+      word-break: break-word;
+      border-left: 3px solid #1e88e5;
+    }
+    .edit-mode .value { display: none; }
+    .edit-mode input, .edit-mode textarea { display: block; }
+    .view-mode input, .view-mode textarea { display: none; }
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: background 0.2s, transform 0.1s;
+      font-size: 14px;
+    }
+    .btn:active { transform: scale(0.96); }
+    .btn-primary { background: #1e88e5; color: #fff; }
+    .btn-primary:hover { background: #1565c0; }
+    .btn-danger { background: #e53935; color: #fff; }
+    .btn-danger:hover { background: #c62828; }
+    .btn-success { background: #43a047; color: #fff; }
+    .btn-success:hover { background: #2e7d32; }
+    .btn-secondary { background: #e0e0e0; color: #333; }
+    .btn-secondary:hover { background: #bdbdbd; }
+    .btn-share { background: #ff9800; color: #fff; }
+    .btn-share:hover { background: #f57c00; }
+    .btn-sm { padding: 4px 10px; font-size: 13px; }
+    .panel-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+      border-top: 1px solid #eee;
+      padding-top: 12px;
+    }
+    #sellerBlock {
+      background: #f9f9f9;
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 8px;
+      border: 1px solid #eee;
+    }
+    #sellerBlock .seller-fields { display: none; margin-top: 8px; }
+    #sellerBlock .seller-fields.open { display: block; }
+    .photo-gallery {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .photo-gallery img {
+      width: 80px;
+      height: 80px;
+      object-fit: cover;
+      border-radius: 4px;
+      cursor: pointer;
+      border: 1px solid #ddd;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .photo-gallery img:hover { transform: scale(1.05); box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+    .video-container iframe { width: 100%; max-width: 100%; border-radius: 4px; }
+    #photoModal {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.85);
+      z-index: 2000;
+      justify-content: center;
+      align-items: center;
+    }
+    #photoModal.active { display: flex; }
+    #photoModal img {
+      max-width: 90%;
+      max-height: 80%;
+      border-radius: 8px;
+      box-shadow: 0 0 30px rgba(0,0,0,0.5);
+    }
+    #photoModal .nav-btn {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(255,255,255,0.3);
+      color: #fff;
+      border: none;
+      font-size: 40px;
+      padding: 10px 20px;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: background 0.2s;
+    }
+    #photoModal .nav-btn:hover { background: rgba(255,255,255,0.5); }
+    #photoModal .nav-btn.prev { left: 20px; }
+    #photoModal .nav-btn.next { right: 20px; }
+    #photoModal .close-modal {
+      position: absolute;
+      top: 20px;
+      right: 30px;
+      font-size: 40px;
+      color: #fff;
+      cursor: pointer;
+    }
+    #addModal {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.6);
+      z-index: 3000;
+      justify-content: center;
+      align-items: center;
+    }
+    #addModal.active { display: flex; }
+    #addModal .modal-content {
+      background: #fff;
+      padding: 30px;
+      border-radius: 8px;
+      max-width: 550px;
+      width: 90%;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    }
+    #addModal .modal-content h2 { margin-bottom: 20px; color: #1e88e5; }
+    #addModal .modal-content .field { margin-bottom: 12px; }
+    #addModal .modal-content .field label { display: block; font-weight: 600; margin-bottom: 3px; }
+    #addModal .modal-content .field input,
+    #addModal .modal-content .field textarea { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+    #addModal .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
+    .radio-group label { display: inline-block; margin-right: 15px; font-weight: normal; }
+    .file-upload-wrapper { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .file-upload-wrapper input[type="file"] { flex: 1; }
+    .toast {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #323232;
+      color: #fff;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 16px;
+      z-index: 9999;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+    }
+    .toast.show { opacity: 1; }
+    @media (max-width: 768px) {
+      #sidePanel { width: 100%; left: -100%; }
+      #sidePanel.active { left: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  
+  <!-- Боковая панель -->
+  <div id="sidePanel">
+    <button id="closePanel" class="btn btn-secondary" style="align-self: flex-end;">✕ Закрыть</button>
+    <h2 id="panelTitle">📍 Объект</h2>
+    <div id="panelContent" class="view-mode"></div>
+    <div class="panel-actions">
+      <button id="editBtn" class="btn btn-primary">✏️ Редактировать</button>
+      <button id="saveBtn" class="btn btn-success" style="display:none;">💾 Сохранить</button>
+      <button id="shareBtn" class="btn btn-share">🔗 Поделиться</button>
+      <button id="deleteBtn" class="btn btn-danger">🗑️ Удалить</button>
+    </div>
+  </div>
+  
+  <!-- Модалка фото -->
+  <div id="photoModal">
+    <span class="close-modal">&times;</span>
+    <button class="nav-btn prev">‹</button>
+    <img id="modalPhoto" src="" alt="Фото">
+    <button class="nav-btn next">›</button>
+  </div>
+  
+  <!-- Модалка добавления -->
+  <div id="addModal">
+    <div class="modal-content">
+      <h2>➕ Добавить объект</h2>
+      <div class="field">
+        <label>Тип объекта</label>
+        <div class="radio-group">
+          <label><input type="radio" name="addType" value="land" checked> Земельный участок</label>
+          <label><input type="radio" name="addType" value="building"> Строящийся дом</label>
+          <label><input type="radio" name="addType" value="built"> Построенный дом</label>
+        </div>
+      </div>
+      <div class="field"><label>Цена (руб)</label><input id="addPrice" type="text" placeholder="2 500 000"></div>
+      <div class="field"><label>Площадь участка (соток)</label><input id="addArea" type="text" placeholder="12"></div>
+      <div class="field"><label>Кадастровый номер</label><input id="addCadastre" type="text" placeholder="XX:XX:XXXXXX:XXX"></div>
+      <div class="field"><label>Подъездные пути</label><input id="addRoads" type="text" placeholder="Асфальт/грунт"></div>
+      <div class="field"><label>Состояние</label><input id="addCondition" type="text" placeholder="Огорожен, есть строения"></div>
+      <div class="field"><label>Описание</label><textarea id="addDesc" rows="3" placeholder="Дополнительная информация"></textarea></div>
+      
+      <div class="field">
+        <label>Фото</label>
+        <div class="file-upload-wrapper">
+          <input type="file" id="addPhotoInput" accept="image/*" multiple>
+          <button id="addUploadPhotosBtn" class="btn btn-secondary btn-sm">📤 Загрузить</button>
+        </div>
+        <div style="margin-top: 5px; font-size: 13px; color: #666;">Или введите ссылки через запятую:</div>
+        <input id="addPhotos" type="text" placeholder="https://...jpg, https://...png">
+      </div>
+      
+      <div class="field"><label>Видео (ссылка YouTube embed)</label><input id="addVideo" type="text" placeholder="https://www.youtube.com/embed/..."></div>
+      <div id="addHouseFields" style="display:none;">
+        <div class="field"><label>Площадь дома (кв.м)</label><input id="addHouseArea" type="text" placeholder="120"></div>
+        <div class="field"><label>Материалы</label><input id="addHouseMaterials" type="text" placeholder="Кирпич, бетон"></div>
+      </div>
+      <div class="field"><label>Имя продавца</label><input id="addSellerName" type="text" placeholder="Иван Иванов"></div>
+      <div class="field"><label>Телефон продавца</label><input id="addSellerPhone" type="text" placeholder="+7 900 123-45-67"></div>
+      <div class="field"><label>Email продавца</label><input id="addSellerEmail" type="email" placeholder="ivan@mail.ru"></div>
+      <div class="modal-actions">
+        <button id="addSaveBtn" class="btn btn-success">✅ Сохранить</button>
+        <button id="addCancelBtn" class="btn btn-secondary">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast">Ссылка скопирована!</div>
+
+  <script>
+    // ============================================================
+    // 1. НАСТРОЙКА FIREBASE — ВАШ КОНФИГ (уже вставлен)
+    // ============================================================
+    const firebaseConfig = {
+      apiKey: "AIzaSyBpP14wiDqjssdYujQM709uEJg5BNCdpps",
+      authDomain: "reestr-obektov.firebaseapp.com",
+      databaseURL: "https://reestr-obektov-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "reestr-obektov",
+      storageBucket: "reestr-obektov.firebasestorage.app",
+      messagingSenderId: "800962417269",
+      appId: "1:800962417269:web:abe3a03947b0c620651e3c",
+      measurementId: "G-52BGVJLH73"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+    const storage = firebase.storage();
+    const pointsRef = db.ref('points');
+
+    // ============================================================
+    // 2. ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
+    // ============================================================
+    let myMap;
+    let currentKey = null;
+    let currentData = null;
+    let isEditMode = false;
+    let markers = {};
+    let photoModalIndex = 0;
+    let photoList = [];
+
+    const TYPE_LABELS = {
+      land: 'Земельный участок',
+      building: 'Строящийся дом',
+      built: 'Построенный дом'
+    };
+    const TYPE_PRESETS = {
+      land: 'islands#greenIcon',
+      building: 'islands#yellowIcon',
+      built: 'islands#redIcon'
+    };
+
+    // ============================================================
+    // 3. РАБОТА С FIREBASE
+    // ============================================================
+    function loadPointsFromFirebase() {
+      return new Promise((resolve, reject) => {
+        pointsRef.once('value', (snapshot) => {
+          const data = snapshot.val() || {};
+          resolve(data);
+        }, reject);
+      });
+    }
+
+    function savePointToFirebase(key, data) {
+      return pointsRef.child(key).set(data);
+    }
+
+    function deletePointFromFirebase(key) {
+      return pointsRef.child(key).remove();
+    }
+
+    function uploadPhotos(files) {
+      const uploadPromises = [];
+      for (let file of files) {
+        const path = `photos/${Date.now()}_${file.name}`;
+        const uploadTask = storage.ref(path).put(file);
+        const promise = new Promise((resolve, reject) => {
+          uploadTask.then((snapshot) => {
+            snapshot.ref.getDownloadURL().then(url => resolve(url)).catch(reject);
+          }).catch(reject);
+        });
+        uploadPromises.push(promise);
+      }
+      return Promise.all(uploadPromises);
+    }
+
+    // ============================================================
+    // 4. ИНИЦИАЛИЗАЦИЯ КАРТЫ
+    // ============================================================
+    ymaps.ready(function () {
+      myMap = new ymaps.Map('map', {
+        center: [55.76, 37.64],
+        zoom: 10,
+        controls: ['zoomControl', 'fullscreenControl']
+      });
+
+      myMap.events.add('click', function (e) {
+        const coords = e.get('coords');
+        openAddModal(coords);
+      });
+
+      loadPointsFromFirebase().then(data => {
+        renderAllMarkersFromData(data);
+        const urlParams = new URLSearchParams(window.location.search);
+        const pointKey = urlParams.get('point');
+        if (pointKey && data[pointKey]) {
+          setTimeout(() => openPanel(pointKey, data), 300);
+        }
+      }).catch(err => {
+        console.error('Ошибка загрузки данных:', err);
+        showToast('Не удалось загрузить данные из Firebase');
+      });
+
+      pointsRef.on('value', (snapshot) => {
+        const data = snapshot.val() || {};
+        renderAllMarkersFromData(data);
+        if (currentKey && data[currentKey]) {
+          currentData = data[currentKey];
+          renderPanel(currentKey, currentData);
+        } else if (currentKey) {
+          closePanel();
+        }
+      });
+    });
+
+    // ============================================================
+    // 5. ОТРИСОВКА МАРКЕРОВ
+    // ============================================================
+    function renderAllMarkersFromData(data) {
+      myMap.geoObjects.removeAll();
+      markers = {};
+      Object.keys(data).forEach(function(key) {
+        const point = data[key];
+        if (point.lat && point.lng) {
+          createMarker(key, point);
+        }
+      });
+    }
+
+    function createMarker(key, point) {
+      const type = point.type || 'land';
+      const preset = TYPE_PRESETS[type] || 'islands#blueIcon';
+      const label = TYPE_LABELS[type] || 'Объект';
+      const placemark = new ymaps.Placemark(
+        [point.lat, point.lng],
+        { balloonContent: `<b>${label}</b><br>${point.price || 'Участок'}` },
+        { preset: preset }
+      );
+      placemark.events.add('click', function () {
+        openPanel(key);
+      });
+      myMap.geoObjects.add(placemark);
+      markers[key] = placemark;
+    }
+
+    // ============================================================
+    // 6. БОКОВАЯ ПАНЕЛЬ
+    // ============================================================
+    function openPanel(key, dataFromSnapshot) {
+      if (!dataFromSnapshot) {
+        loadPointsFromFirebase().then(data => {
+          if (data[key]) openPanel(key, data);
+          else showToast('Объект не найден');
+        });
+        return;
+      }
+      const point = dataFromSnapshot[key];
+      if (!point) {
+        alert('Объект не найден');
+        return;
+      }
+      currentKey = key;
+      currentData = point;
+      renderPanel(key, point);
+      document.getElementById('sidePanel').classList.add('active');
+      setEditMode(false);
+    }
+
+    function closePanel() {
+      document.getElementById('sidePanel').classList.remove('active');
+      currentKey = null;
+      currentData = null;
+      isEditMode = false;
+    }
+
+    function renderPanel(key, data) {
+      const container = document.getElementById('panelContent');
+      const type = data.type || 'land';
+      const typeLabel = TYPE_LABELS[type] || 'Неизвестно';
+      const photos = data.photos || [];
+      const isHouse = (type !== 'land');
+
+      let html = `
+        <div class="field">
+          <label>Тип объекта</label>
+          <div class="value" id="typeDisplay">${typeLabel}</div>
+          <div id="typeEdit" style="display:none;">
+            <label><input type="radio" name="editType" value="land" ${type==='land'?'checked':''}> Земельный участок</label>
+            <label><input type="radio" name="editType" value="building" ${type==='building'?'checked':''}> Строящийся дом</label>
+            <label><input type="radio" name="editType" value="built" ${type==='built'?'checked':''}> Построенный дом</label>
+          </div>
+        </div>
+        <div class="field">
+          <label>Цена</label>
+          <div class="value">${data.price || '—'}</div>
+          <input type="text" id="editPrice" value="${data.price || ''}" style="display:none;">
+        </div>
+        <div class="field">
+          <label>Площадь участка (соток)</label>
+          <div class="value">${data.area || '—'}</div>
+          <input type="text" id="editArea" value="${data.area || ''}" style="display:none;">
+        </div>
+        <div class="field">
+          <label>Кадастровый номер</label>
+          <div class="value">${data.cadastre || '—'}</div>
+          <input type="text" id="editCadastre" value="${data.cadastre || ''}" style="display:none;">
+        </div>
+        <div class="field">
+          <label>Подъездные пути</label>
+          <div class="value">${data.roads || '—'}</div>
+          <input type="text" id="editRoads" value="${data.roads || ''}" style="display:none;">
+        </div>
+        <div class="field">
+          <label>Состояние</label>
+          <div class="value">${data.condition || '—'}</div>
+          <input type="text" id="editCondition" value="${data.condition || ''}" style="display:none;">
+        </div>
+        <div class="field">
+          <label>Описание</label>
+          <div class="value">${data.description || '—'}</div>
+          <textarea id="editDesc" style="display:none;">${data.description || ''}</textarea>
+        </div>
+        <div class="field">
+          <label>Фото</label>
+          <div class="photo-gallery" id="photoGallery">
+      `;
+      if (photos.length) {
+        photos.forEach(function(url, idx) {
+          html += `<img src="${url}" data-idx="${idx}" class="gallery-photo" alt="Фото ${idx+1}">`;
+        });
+      } else {
+        html += `<span class="value">Нет фото</span>`;
+      }
+      html += `
+          </div>
+          <div class="file-upload-wrapper" style="margin-top:5px;">
+            <input type="file" id="editPhotoInput" accept="image/*" multiple style="display:none;">
+            <button id="editUploadBtn" class="btn btn-secondary btn-sm" style="display:none;">📤 Загрузить фото</button>
+          </div>
+          <input type="text" id="editPhotos" value="${photos.join(', ')}" style="display:none; width:100%; margin-top:5px;" placeholder="Ссылки через запятую">
+        </div>
+        <div class="field">
+          <label>Видео</label>
+          <div class="value">${data.video ? `<div class="video-container"><iframe src="${data.video}" frameborder="0" allowfullscreen></iframe></div>` : '—'}</div>
+          <input type="text" id="editVideo" value="${data.video || ''}" style="display:none; width:100%;" placeholder="Ссылка на YouTube embed">
+        </div>
+      `;
+
+      html += `
+        <div id="houseFieldsContainer" style="${isHouse ? '' : 'display:none;'}">
+          <div class="field">
+            <label>Площадь дома (кв.м)</label>
+            <div class="value">${data.houseArea || '—'}</div>
+            <input type="text" id="editHouseArea" value="${data.houseArea || ''}" style="display:none;">
+          </div>
+          <div class="field">
+            <label>Материалы</label>
+            <div class="value">${data.houseMaterials || '—'}</div>
+            <input type="text" id="editHouseMaterials" value="${data.houseMaterials || ''}" style="display:none;">
+          </div>
+        </div>
+      `;
+
+      container.innerHTML = html;
+
+      const seller = data.seller || {};
+      const sellerHtml = `
+        <div id="sellerBlock">
+          <button id="toggleSellerBtn" class="btn btn-secondary btn-sm">📋 Данные продавца</button>
+          <div class="seller-fields">
+            <div class="field">
+              <label>Имя</label>
+              <div class="value">${seller.name || '—'}</div>
+              <input type="text" id="editSellerName" value="${seller.name || ''}" style="display:none;">
+            </div>
+            <div class="field">
+              <label>Телефон</label>
+              <div class="value">${seller.phone || '—'}</div>
+              <input type="text" id="editSellerPhone" value="${seller.phone || ''}" style="display:none;">
+            </div>
+            <div class="field">
+              <label>Email</label>
+              <div class="value">${seller.email || '—'}</div>
+              <input type="text" id="editSellerEmail" value="${seller.email || ''}" style="display:none;">
+            </div>
+          </div>
+        </div>
+      `;
+      container.insertAdjacentHTML('beforeend', sellerHtml);
+
+      document.querySelectorAll('.gallery-photo').forEach(img => {
+        img.addEventListener('click', function() {
+          const idx = parseInt(this.dataset.idx);
+          openPhotoModal(photos, idx);
+        });
+      });
+
+      document.getElementById('toggleSellerBtn').addEventListener('click', function() {
+        const fields = this.nextElementSibling;
+        fields.classList.toggle('open');
+        this.textContent = fields.classList.contains('open') ? '🔽 Скрыть данные' : '📋 Данные продавца';
+      });
+
+      setEditMode(false);
+    }
+
+    function setEditMode(enable) {
+      isEditMode = enable;
+      const container = document.getElementById('panelContent');
+      const editBtn = document.getElementById('editBtn');
+      const saveBtn = document.getElementById('saveBtn');
+
+      if (enable) {
+        container.classList.remove('view-mode');
+        container.classList.add('edit-mode');
+        container.querySelectorAll('.value').forEach(el => el.style.display = 'none');
+        container.querySelectorAll('input, textarea').forEach(el => el.style.display = '');
+        document.querySelectorAll('#sellerBlock .value').forEach(el => el.style.display = 'none');
+        document.querySelectorAll('#sellerBlock input').forEach(el => el.style.display = '');
+        document.getElementById('typeDisplay').style.display = 'none';
+        document.getElementById('typeEdit').style.display = '';
+        document.getElementById('editUploadBtn').style.display = 'inline-block';
+        document.getElementById('editPhotoInput').style.display = 'inline-block';
+        updateHouseFieldsVisibility();
+        const typeRadios = document.querySelectorAll('input[name="editType"]');
+        typeRadios.forEach(radio => {
+          radio.addEventListener('change', updateHouseFieldsVisibility);
+        });
+        editBtn.style.display = 'none';
+        saveBtn.style.display = 'inline-block';
+      } else {
+        container.classList.remove('edit-mode');
+        container.classList.add('view-mode');
+        container.querySelectorAll('.value').forEach(el => el.style.display = '');
+        container.querySelectorAll('input, textarea').forEach(el => el.style.display = 'none');
+        document.querySelectorAll('#sellerBlock .value').forEach(el => el.style.display = '');
+        document.querySelectorAll('#sellerBlock input').forEach(el => el.style.display = 'none');
+        document.getElementById('typeDisplay').style.display = '';
+        document.getElementById('typeEdit').style.display = 'none';
+        document.getElementById('editUploadBtn').style.display = 'none';
+        document.getElementById('editPhotoInput').style.display = 'none';
+        editBtn.style.display = 'inline-block';
+        saveBtn.style.display = 'none';
+      }
+    }
+
+    function updateHouseFieldsVisibility() {
+      const selected = document.querySelector('input[name="editType"]:checked');
+      if (!selected) return;
+      const type = selected.value;
+      const container = document.getElementById('houseFieldsContainer');
+      if (container) {
+        container.style.display = (type === 'land') ? 'none' : '';
+      }
+    }
+
+    // Обработчики кнопок панели
+    document.getElementById('closePanel').addEventListener('click', closePanel);
+    document.getElementById('editBtn').addEventListener('click', function() {
+      if (currentKey) setEditMode(true);
+    });
+
+    document.getElementById('editUploadBtn').addEventListener('click', function() {
+      document.getElementById('editPhotoInput').click();
+    });
+    document.getElementById('editPhotoInput').addEventListener('change', async function(e) {
+      const files = e.target.files;
+      if (!files.length) return;
+      try {
+        const urls = await uploadPhotos(files);
+        const currentPhotos = document.getElementById('editPhotos').value.split(',').map(s => s.trim()).filter(Boolean);
+        const newPhotos = currentPhotos.concat(urls);
+        document.getElementById('editPhotos').value = newPhotos.join(', ');
+        const tempData = { ...currentData, photos: newPhotos };
+        renderPanel(currentKey, tempData);
+        setEditMode(true);
+        showToast(`Загружено ${urls.length} фото`);
+      } catch (err) {
+        console.error(err);
+        showToast('Ошибка загрузки фото');
+      }
+      e.target.value = '';
+    });
+
+    document.getElementById('saveBtn').addEventListener('click', async function() {
+      if (!currentKey || !currentData) return;
+
+      const selectedType = document.querySelector('input[name="editType"]:checked');
+      if (!selectedType) {
+        alert('Выберите тип объекта');
+        return;
+      }
+      const type = selectedType.value;
+
+      const updated = {
+        type: type,
+        price: document.getElementById('editPrice').value.trim(),
+        area: document.getElementById('editArea').value.trim(),
+        cadastre: document.getElementById('editCadastre').value.trim(),
+        roads: document.getElementById('editRoads').value.trim(),
+        condition: document.getElementById('editCondition').value.trim(),
+        description: document.getElementById('editDesc').value.trim(),
+        video: document.getElementById('editVideo').value.trim(),
+        photos: document.getElementById('editPhotos').value.split(',').map(s => s.trim()).filter(Boolean),
+        houseArea: document.getElementById('editHouseArea').value.trim(),
+        houseMaterials: document.getElementById('editHouseMaterials').value.trim(),
+        seller: {
+          name: document.getElementById('editSellerName').value.trim(),
+          phone: document.getElementById('editSellerPhone').value.trim(),
+          email: document.getElementById('editSellerEmail').value.trim()
+        }
+      };
+      if (type === 'land') {
+        updated.houseArea = '';
+        updated.houseMaterials = '';
+      }
+
+      try {
+        await savePointToFirebase(currentKey, { ...currentData, ...updated });
+        currentData = { ...currentData, ...updated };
+        renderPanel(currentKey, currentData);
+        setEditMode(false);
+        showToast('Сохранено!');
+      } catch (err) {
+        console.error(err);
+        showToast('Ошибка сохранения');
+      }
+    });
+
+    document.getElementById('deleteBtn').addEventListener('click', async function() {
+      if (!currentKey) return;
+      if (confirm('Удалить этот объект?')) {
+        try {
+          await deletePointFromFirebase(currentKey);
+          closePanel();
+          showToast('Удалено');
+        } catch (err) {
+          console.error(err);
+          showToast('Ошибка удаления');
+        }
+      }
+    });
+
+    // ============================================================
+    // 7. ПОДЕЛИТЬСЯ
+    // ============================================================
+    document.getElementById('shareBtn').addEventListener('click', function() {
+      if (!currentKey) {
+        alert('Сначала откройте точку');
+        return;
+      }
+      const url = new URL(window.location.href);
+      url.searchParams.set('point', currentKey);
+      const shareUrl = url.toString();
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(shareUrl)
+          .then(() => showToast('Ссылка скопирована!'))
+          .catch(() => fallbackCopy(shareUrl));
+      } else {
+        fallbackCopy(shareUrl);
+      }
+    });
+
+    function fallbackCopy(text) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand('copy');
+        showToast('Ссылка скопирована!');
+      } catch (e) {
+        alert('Не удалось скопировать ссылку. Вот она: ' + text);
+      }
+      document.body.removeChild(textarea);
+    }
+
+    function showToast(message) {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    // ============================================================
+    // 8. ФОТО МОДАЛКА
+    // ============================================================
+    function openPhotoModal(photos, index) {
+      if (!photos || !photos.length) return;
+      photoList = photos;
+      photoModalIndex = index;
+      document.getElementById('modalPhoto').src = photos[index];
+      document.getElementById('photoModal').classList.add('active');
+      document.querySelector('#photoModal .prev').style.display = photos.length > 1 ? 'block' : 'none';
+      document.querySelector('#photoModal .next').style.display = photos.length > 1 ? 'block' : 'none';
+    }
+
+    function closePhotoModal() {
+      document.getElementById('photoModal').classList.remove('active');
+    }
+
+    document.querySelector('#photoModal .prev').addEventListener('click', function() {
+      if (photoList.length === 0) return;
+      photoModalIndex = (photoModalIndex - 1 + photoList.length) % photoList.length;
+      document.getElementById('modalPhoto').src = photoList[photoModalIndex];
+    });
+    document.querySelector('#photoModal .next').addEventListener('click', function() {
+      if (photoList.length === 0) return;
+      photoModalIndex = (photoModalIndex + 1) % photoList.length;
+      document.getElementById('modalPhoto').src = photoList[photoModalIndex];
+    });
+    document.querySelector('#photoModal .close-modal').addEventListener('click', closePhotoModal);
+    document.querySelector('#photoModal').addEventListener('click', function(e) {
+      if (e.target === this) closePhotoModal();
+    });
+    document.addEventListener('keydown', function(e) {
+      if (document.getElementById('photoModal').classList.contains('active')) {
+        if (e.key === 'ArrowLeft') document.querySelector('#photoModal .prev').click();
+        else if (e.key === 'ArrowRight') document.querySelector('#photoModal .next').click();
+        else if (e.key === 'Escape') closePhotoModal();
+      }
+    });
+
+    // ============================================================
+    // 9. МОДАЛКА ДОБАВЛЕНИЯ
+    // ============================================================
+    let addCoords = null;
+
+    function openAddModal(coords) {
+      addCoords = coords;
+      document.querySelector('input[name="addType"][value="land"]').checked = true;
+      document.getElementById('addHouseFields').style.display = 'none';
+      ['Price','Area','Cadastre','Roads','Condition','Desc','Photos','Video','HouseArea','HouseMaterials','SellerName','SellerPhone','SellerEmail'].forEach(id => {
+        document.getElementById('add' + id).value = '';
+      });
+      document.getElementById('addPhotoInput').value = '';
+      document.getElementById('addModal').classList.add('active');
+    }
+
+    function closeAddModal() {
+      document.getElementById('addModal').classList.remove('active');
+      addCoords = null;
+    }
+
+    document.getElementById('addCancelBtn').addEventListener('click', closeAddModal);
+    document.getElementById('addModal').addEventListener('click', function(e) {
+      if (e.target === this) closeAddModal();
+    });
+
+    document.querySelectorAll('input[name="addType"]').forEach(radio => {
+      radio.addEventListener('change', function() {
+        document.getElementById('addHouseFields').style.display = (this.value !== 'land') ? '' : 'none';
+      });
+    });
+
+    document.getElementById('addUploadPhotosBtn').addEventListener('click', function() {
+      document.getElementById('addPhotoInput').click();
+    });
+    document.getElementById('addPhotoInput').addEventListener('change', async function(e) {
+      const files = e.target.files;
+      if (!files.length) return;
+      try {
+        const urls = await uploadPhotos(files);
+        const current = document.getElementById('addPhotos').value.split(',').map(s => s.trim()).filter(Boolean);
+        const newUrls = current.concat(urls);
+        document.getElementById('addPhotos').value = newUrls.join(', ');
+        showToast(`Загружено ${urls.length} фото`);
+      } catch (err) {
+        console.error(err);
+        showToast('Ошибка загрузки фото');
+      }
+      e.target.value = '';
+    });
+
+    document.getElementById('addSaveBtn').addEventListener('click', async function() {
+      if (!addCoords) {
+        alert('Координаты не определены');
+        return;
+      }
+      const type = document.querySelector('input[name="addType"]:checked').value;
+      const newPoint = {
+        lat: addCoords[0],
+        lng: addCoords[1],
+        type: type,
+        price: document.getElementById('addPrice').value.trim(),
+        area: document.getElementById('addArea').value.trim(),
+        cadastre: document.getElementById('addCadastre').value.trim(),
+        roads: document.getElementById('addRoads').value.trim(),
+        condition: document.getElementById('addCondition').value.trim(),
+        description: document.getElementById('addDesc').value.trim(),
+        photos: document.getElementById('addPhotos').value.split(',').map(s => s.trim()).filter(Boolean),
+        video: document.getElementById('addVideo').value.trim(),
+        houseArea: document.getElementById('addHouseArea').value.trim(),
+        houseMaterials: document.getElementById('addHouseMaterials').value.trim(),
+        seller: {
+          name: document.getElementById('addSellerName').value.trim(),
+          phone: document.getElementById('addSellerPhone').value.trim(),
+          email: document.getElementById('addSellerEmail').value.trim()
+        }
+      };
+      if (type === 'land') {
+        newPoint.houseArea = '';
+        newPoint.houseMaterials = '';
+      }
+      if (!newPoint.price && !newPoint.description) {
+        alert('Заполните хотя бы цену или описание');
+        return;
+      }
+      try {
+        const newKey = Date.now().toString();
+        await savePointToFirebase(newKey, newPoint);
+        closeAddModal();
+        showToast('Объект добавлен!');
+      } catch (err) {
+        console.error(err);
+        showToast('Ошибка добавления');
+      }
+    });
+
+    // ============================================================
+    // 10. ЗАКРЫТИЕ ПО ESC
+    // ============================================================
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        if (document.getElementById('sidePanel').classList.contains('active')) closePanel();
+        if (document.getElementById('addModal').classList.contains('active')) closeAddModal();
+        if (document.getElementById('photoModal').classList.contains('active')) closePhotoModal();
+      }
+    });
+
+    console.log('Карта с Firebase и загрузкой фото запущена!');
+  </script>
+</body>
+</html>
