@@ -8,7 +8,6 @@
   <script src="https://api-maps.yandex.ru/2.1/?apikey=065d6c4c-73e3-4f3a-be43-e2ccef65e3bc&lang=ru_RU"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -253,6 +252,7 @@
       <div class="field"><label>Цена (руб)</label><input id="addPrice" type="text" placeholder="2 500 000"></div>
       <div class="field"><label>Площадь участка (соток)</label><input id="addArea" type="text" placeholder="12"></div>
       <div class="field"><label>Кадастровый номер</label><input id="addCadastre" type="text" placeholder="XX:XX:XXXXXX:XXX"></div>
+      <div class="field"><label>Ссылка на карту</label><input id="addMapLink" type="text" placeholder="https://yandex.ru/maps/..."></div>
       <div class="field"><label>Подъездные пути</label><input id="addRoads" type="text" placeholder="Асфальт/грунт"></div>
       <div class="field"><label>Состояние</label><input id="addCondition" type="text" placeholder="Огорожен, есть строения"></div>
       <div class="field"><label>Описание</label><textarea id="addDesc" rows="3" placeholder="Дополнительная информация"></textarea></div>
@@ -297,6 +297,14 @@
     var photoList = [];
     var addCoords = null;
 
+    // ============================================================
+    // API КЛЮЧ IMGBB (УЖЕ ВАШ)
+    // ============================================================
+    var IMGBB_API_KEY = 'ebaa9a423b60ff4da24d4a2ef27722b6';
+
+    // ============================================================
+    // ТИПЫ ОБЪЕКТОВ
+    // ============================================================
     var TYPE_LABELS = {
       land: 'Земельный участок',
       building: 'Строящийся дом',
@@ -309,7 +317,7 @@
     };
 
     // ============================================================
-    // FIREBASE КОНФИГ
+    // FIREBASE КОНФИГ (только база данных)
     // ============================================================
     var firebaseConfig = {
       apiKey: "AIzaSyBpP14wiDqjssdYujQM709uEJg5BNCdpps",
@@ -323,7 +331,6 @@
     };
     firebase.initializeApp(firebaseConfig);
     var db = firebase.database();
-    var storage = firebase.storage();
     var pointsRef = db.ref('points');
 
     // ============================================================
@@ -342,18 +349,38 @@
     function deletePointFromFirebase(key) {
       return pointsRef.child(key).remove();
     }
+
+    // ============================================================
+    // ЗАГРУЗКА ФОТО ЧЕРЕЗ IMGBB
+    // ============================================================
+    function uploadToImgBB(file) {
+      return new Promise(function(resolve, reject) {
+        var formData = new FormData();
+        formData.append('image', file);
+
+        fetch('https://api.imgbb.com/1/upload?key=' + IMGBB_API_KEY, {
+          method: 'POST',
+          body: formData
+        })
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+          if (data.success) {
+            resolve(data.data.url); // прямая ссылка на изображение
+          } else {
+            reject(new Error(data.error?.message || 'Ошибка загрузки на ImgBB'));
+          }
+        })
+        .catch(function(err) {
+          reject(err);
+        });
+      });
+    }
+
+    // Загрузка нескольких файлов через ImgBB
     function uploadPhotos(files) {
       var promises = [];
       for (var i = 0; i < files.length; i++) {
-        (function(file) {
-          var path = 'photos/' + Date.now() + '_' + file.name;
-          var task = storage.ref(path).put(file);
-          promises.push(new Promise(function(resolve, reject) {
-            task.then(function(snapshot) {
-              snapshot.ref.getDownloadURL().then(resolve).catch(reject);
-            }).catch(reject);
-          }));
-        })(files[i]);
+        promises.push(uploadToImgBB(files[i]));
       }
       return Promise.all(promises);
     }
@@ -433,6 +460,7 @@
       html += '<div class="field"><label>Цена</label><div class="value">' + (data.price || '—') + '</div><input type="text" id="editPrice" value="' + (data.price || '') + '" style="display:none;"></div>';
       html += '<div class="field"><label>Площадь участка (соток)</label><div class="value">' + (data.area || '—') + '</div><input type="text" id="editArea" value="' + (data.area || '') + '" style="display:none;"></div>';
       html += '<div class="field"><label>Кадастровый номер</label><div class="value">' + (data.cadastre || '—') + '</div><input type="text" id="editCadastre" value="' + (data.cadastre || '') + '" style="display:none;"></div>';
+      html += '<div class="field"><label>Ссылка на карту</label><div class="value">' + (data.mapLink || '—') + '</div><input type="text" id="editMapLink" value="' + (data.mapLink || '') + '" style="display:none;"></div>';
       html += '<div class="field"><label>Подъездные пути</label><div class="value">' + (data.roads || '—') + '</div><input type="text" id="editRoads" value="' + (data.roads || '') + '" style="display:none;"></div>';
       html += '<div class="field"><label>Состояние</label><div class="value">' + (data.condition || '—') + '</div><input type="text" id="editCondition" value="' + (data.condition || '') + '" style="display:none;"></div>';
       html += '<div class="field"><label>Описание</label><div class="value">' + (data.description || '—') + '</div><textarea id="editDesc" style="display:none;">' + (data.description || '') + '</textarea></div>';
@@ -473,7 +501,6 @@
       sellerHtml += '</div></div>';
       container.insertAdjacentHTML('beforeend', sellerHtml);
 
-      // Обработчики для фото (галерея)
       var galleryPhotos = container.querySelectorAll('.gallery-photo');
       for (var j = 0; j < galleryPhotos.length; j++) {
         (function(idx) {
@@ -483,7 +510,6 @@
         })(j);
       }
 
-      // Кнопка показа данных продавца
       var toggleBtn = document.getElementById('toggleSellerBtn');
       if (toggleBtn) {
         toggleBtn.addEventListener('click', function() {
@@ -564,7 +590,7 @@
       addCoords = coords;
       document.querySelector('input[name="addType"][value="land"]').checked = true;
       document.getElementById('addHouseFields').style.display = 'none';
-      var fields = ['Price','Area','Cadastre','Roads','Condition','Desc','Photos','Video','HouseArea','HouseMaterials','SellerName','SellerPhone','SellerEmail'];
+      var fields = ['Price','Area','Cadastre','MapLink','Roads','Condition','Desc','Photos','Video','HouseArea','HouseMaterials','SellerName','SellerPhone','SellerEmail'];
       for (var i = 0; i < fields.length; i++) {
         var el = document.getElementById('add' + fields[i]);
         if (el) el.value = '';
@@ -628,7 +654,9 @@
         controls: ['zoomControl', 'fullscreenControl']
       });
 
-      myMap.events.add('click', function(e) {
+      // ПКМ для добавления объекта
+      myMap.events.add('contextmenu', function(e) {
+        e.preventDefault();
         var coords = e.get('coords');
         openAddModal(coords);
       });
@@ -658,7 +686,7 @@
     });
 
     // ============================================================
-    // ОБРАБОТЧИКИ СОБЫТИЙ (после загрузки DOM)
+    // ОБРАБОТЧИКИ СОБЫТИЙ
     // ============================================================
     document.addEventListener('DOMContentLoaded', function() {
       // Кнопки панели
@@ -684,6 +712,7 @@
             price: document.getElementById('editPrice').value.trim(),
             area: document.getElementById('editArea').value.trim(),
             cadastre: document.getElementById('editCadastre').value.trim(),
+            mapLink: document.getElementById('editMapLink').value.trim(),
             roads: document.getElementById('editRoads').value.trim(),
             condition: document.getElementById('editCondition').value.trim(),
             description: document.getElementById('editDesc').value.trim(),
@@ -745,7 +774,7 @@
         });
       }
 
-      // Загрузка фото в режиме редактирования
+      // Загрузка фото в режиме редактирования (через ImgBB)
       var editUploadBtn = document.getElementById('editUploadBtn');
       if (editUploadBtn) {
         editUploadBtn.addEventListener('click', function() {
@@ -769,7 +798,7 @@
             showToast('Загружено ' + urls.length + ' фото');
           } catch (err) {
             console.error(err);
-            showToast('Ошибка загрузки фото');
+            showToast('Ошибка загрузки фото: ' + err.message);
           }
           e.target.value = '';
         });
@@ -816,7 +845,7 @@
             showToast('Загружено ' + urls.length + ' фото');
           } catch (err) {
             console.error(err);
-            showToast('Ошибка загрузки фото');
+            showToast('Ошибка загрузки фото: ' + err.message);
           }
           e.target.value = '';
         });
@@ -837,6 +866,7 @@
             price: document.getElementById('addPrice').value.trim(),
             area: document.getElementById('addArea').value.trim(),
             cadastre: document.getElementById('addCadastre').value.trim(),
+            mapLink: document.getElementById('addMapLink').value.trim(),
             roads: document.getElementById('addRoads').value.trim(),
             condition: document.getElementById('addCondition').value.trim(),
             description: document.getElementById('addDesc').value.trim(),
@@ -906,7 +936,7 @@
       });
     });
 
-    console.log('Карта с Firebase и загрузкой фото запущена!');
+    console.log('Карта с Firebase + ImgBB для фото запущена!');
   </script>
 </body>
 </html>
