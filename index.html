@@ -10,7 +10,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 
   <style>
-    /* === ВСЕ СТИЛИ (такие же, как в вашем файле) === */
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body, #map { width: 100%; height: 100%; font-family: 'Segoe UI', sans-serif; }
     #sidePanel {
@@ -48,6 +47,10 @@
       background: #fafafa;
     }
     .field textarea { resize: vertical; min-height: 60px; }
+    .field input::placeholder, .field textarea::placeholder {
+      color: #999;
+      opacity: 1;
+    }
     .field .value {
       padding: 6px 10px;
       background: #f5f5f5;
@@ -191,7 +194,7 @@
       margin-right: 4px;
     }
     .file-upload-wrapper { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    .file-upload-wrapper input[type="file"] { flex: 1; }
+    .file-upload-wrapper input[type="file"] { display: none; }
     .toast {
       position: fixed;
       bottom: 30px;
@@ -409,7 +412,7 @@
     }
 
     // ============================================================
-    // 6. БОКОВАЯ ПАНЕЛЬ (ПОЛНАЯ РЕАЛИЗАЦИЯ)
+    // 6. БОКОВАЯ ПАНЕЛЬ
     // ============================================================
     function openPanel(key, dataFromSnapshot) {
       if (!dataFromSnapshot) {
@@ -579,7 +582,7 @@
     }
 
     // ============================================================
-    // 7. МОДАЛКА ДОБАВЛЕНИЯ (открытие/закрытие)
+    // 7. МОДАЛКА ДОБАВЛЕНИЯ
     // ============================================================
     function openAddModal(coords) {
       addCoords = coords;
@@ -618,7 +621,7 @@
     }
 
     // ============================================================
-    // 9. TOAST / УВЕДОМЛЕНИЯ
+    // 9. TOAST
     // ============================================================
     function showToast(message) {
       var toast = document.getElementById('toast');
@@ -683,7 +686,7 @@
     });
 
     // ============================================================
-    // 11. ОБРАБОТЧИКИ СОБЫТИЙ (после загрузки DOM)
+    // 11. ОБРАБОТЧИКИ СОБЫТИЙ
     // ============================================================
     document.addEventListener('DOMContentLoaded', function() {
       // ===== ПАНЕЛЬ =====
